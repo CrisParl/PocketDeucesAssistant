@@ -3,13 +3,13 @@ import disnake
 from disnake.ext import commands
 
 # ---- CONFIG ----
-TOKEN = os.getenv("DISCORD_TOKEN")  # Store securely in host env/replit
+TOKEN = os.getenv("DISCORD_TOKEN")  # Store securely in environment (Replit/host)
 ALLOWED_METHODS = ["venmo", "zelle", "cashapp", "crypto"]
 ADMIN_ROLES = ["admin", "cashier"]
 
 # ---- BOT ----
 intents = disnake.Intents.default()
-intents.members = True  # Requires SERVER MEMBERS INTENT enabled in Dev Portal
+intents.members = True  # Make sure SERVER MEMBERS INTENT is enabled in Developer Portal
 bot = commands.InteractionBot(intents=intents)
 
 # Track queues
@@ -68,20 +68,20 @@ async def deposit(inter, username: str, method: str, amount: float):
                f"📸 Please send a screenshot once payment is complete.")
     else:
         if method.lower() == "zelle":
-            fallback_dest = "crisparlog@gmail.com"
+            dest = "crisparlog@gmail.com"
             msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
-                   f"➡️ Default payout account: **{fallback_dest}**\n"
+                   f"➡️ Send via **Zelle** to **{dest}**\n"
                    f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
                    f"📸 Please send a screenshot once payment is complete.")
         elif method.lower() == "venmo":
-            fallback_dest = "CrisPG"
+            dest = "CrisPG"
             msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Venmo\n"
-                   f"➡️ Default payout account: **{fallback_dest}**\n"
+                   f"➡️ Send via **Venmo** to **{dest}**\n"
                    f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
                    f"📸 Please send a screenshot once payment is complete.")
         else:  # cashapp or crypto
             msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
-                   f"⚠️ No withdrawal matches this deposit — contact admin.\n"
+                   f"➡️ Send via **{method.capitalize()}** — contact admin\n"
                    f"Still stored as pending — you can `/confirm_deposit` later.\n"
                    f"📸 Please send a screenshot once payment is complete.")
 
@@ -108,7 +108,6 @@ async def confirm_deposit(inter):
     username, method, amount = pending["username"], pending["method"], pending["amount"]
 
     remaining = amount
-    private_msgs = []
 
     for w in withdrawals:
         if w["method"] != method or w["amount"] <= 0:
@@ -117,23 +116,15 @@ async def confirm_deposit(inter):
             break
 
         if remaining >= w["amount"]:  # full match
-            private_msgs.append(
-                f"✅ Sent ${w['amount']:.2f} via {w['method'].capitalize()} to {w['destination']}"
-            )
-            remaining -= w["amount"]
-
             channel = bot.get_channel(w["channel_id"])
             if channel:
                 await channel.send(
                     f"📢 **Update for {w['username']}**\n"
                     f"Amount claimed: ${w['amount']:.2f}\nRemaining: $0.00"
                 )
+            remaining -= w["amount"]
             w["amount"] = 0
         else:  # partial match
-            private_msgs.append(
-                f"✅ Partial: Sent ${remaining:.2f} via {w['method'].capitalize()} to {w['destination']}\n"
-                f"Remaining withdrawal: ${w['amount'] - remaining:.2f}"
-            )
             channel = bot.get_channel(w["channel_id"])
             if channel:
                 await channel.send(
@@ -144,15 +135,11 @@ async def confirm_deposit(inter):
             remaining = 0
             break
 
-    if private_msgs:
-        if remaining > 0:
-            private_msgs.append(f"⚠️ ${remaining:.2f} of {username}'s deposit remains unmatched.")
-        await inter.response.send_message("\n".join(private_msgs))
-    else:
-        await inter.response.send_message("⚠️ Deposit confirmed but no matches found.", ephemeral=True)
+    # Thank depositor (staff sees confirmation)
+    await inter.response.send_message("✅ Thank you! Your chips will be loaded shortly.")
 
 
-# ---- MODIFIED ADD/SUBTRACT ----
+# ---- CHANNEL-BASED ADD/SUBTRACT ----
 
 @bot.slash_command(description="Add money to the active withdrawal in this channel")
 async def add(inter, amount: float):
