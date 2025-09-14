@@ -96,7 +96,9 @@ async def complete(inter):
         await inter.response.send_message("⚠️ No deposits in queue.")
 
 # ---- START ----
+print("Loaded token?", bool(TOKEN))
 bot.run(TOKEN)
+
 
 
 
