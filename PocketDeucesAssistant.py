@@ -3,13 +3,13 @@ import disnake
 from disnake.ext import commands
 
 # ---- CONFIG ----
-TOKEN = os.getenv("DISCORD_TOKEN")  # Set this in your environment/hosting
+TOKEN = os.getenv("DISCORD_TOKEN")  # Store in Replit/host secrets
 ALLOWED_METHODS = ["venmo", "zelle", "cashapp", "crypto"]
 ADMIN_ROLES = ["admin", "cashier"]
 
 # ---- BOT ----
 intents = disnake.Intents.default()
-intents.members = True  # requires "Server Members Intent" enabled in Dev Portal
+intents.members = True  # Requires SERVER MEMBERS INTENT enabled in Dev Portal
 bot = commands.InteractionBot(intents=intents)
 
 # Track queues (in memory)
@@ -38,7 +38,7 @@ async def queue(inter, username: str, method: str, destination: str, amount: flo
         "method": method.lower(),
         "destination": destination,
         "amount": amount,
-        "channel_id": inter.channel.id  # store the channel where it was queued
+        "channel_id": inter.channel.id  # Save channel for updates
     })
     await inter.response.send_message(
         f"✅ Withdrawal queued:\n"
@@ -58,10 +58,37 @@ async def deposit(inter, username: str, method: str, amount: float):
     deposit_entry = {"username": username, "method": method.lower(), "amount": amount, "status": "pending"}
     deposits.append(deposit_entry)
 
-    await inter.response.send_message(
-        f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
-        f"Use `/confirm_deposit` once payment is verified."
-    )
+    # Check if there's at least one withdrawal that matches method
+    match_found = any(w["method"] == method.lower() and w["amount"] > 0 for w in withdrawals)
+
+    if match_found:
+        msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
+               f"✅ Potential match found in withdrawal queue.\n"
+               f"Use `/confirm_deposit` once payment is verified.\n"
+               f"📸 Please send a screenshot once payment is complete.")
+    else:
+        # Fallback defaults
+        if method.lower() == "zelle":
+            fallback_dest = "crisparlog@gmail.com"
+            msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
+                   f"⚠️ No withdrawal matches this deposit.\n"
+                   f"➡️ Default payout account: **{fallback_dest}**\n"
+                   f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
+                   f"📸 Please send a screenshot once payment is complete.")
+        elif method.lower() == "venmo":
+            fallback_dest = "CrisPG"
+            msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Venmo\n"
+                   f"⚠️ No withdrawal matches this deposit.\n"
+                   f"➡️ Default payout account: **{fallback_dest}**\n"
+                   f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
+                   f"📸 Please send a screenshot once payment is complete.")
+        else:  # cashapp or crypto
+            msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
+                   f"⚠️ No withdrawal matches this deposit — contact admin.\n"
+                   f"Still stored as pending — you can `/confirm_deposit` later.\n"
+                   f"📸 Please send a screenshot once payment is complete.")
+
+    await inter.response.send_message(msg)
 
 
 @bot.slash_command(description="Confirm the last pending deposit and process matches")
@@ -99,7 +126,6 @@ async def confirm_deposit(inter):
             private_msgs.append(f"✅ Sent ${w['amount']:.2f} to {w['username']} via {w['method']}")
             remaining -= w["amount"]
 
-            # Post update in the channel where withdrawal was queued
             channel = bot.get_channel(w["channel_id"])
             if channel:
                 await channel.send(
@@ -107,15 +133,12 @@ async def confirm_deposit(inter):
                     f"Amount claimed: ${w['amount']:.2f}\n"
                     f"Remaining: $0.00"
                 )
-
             w["amount"] = 0
         else:  # partial match
             private_msgs.append(
                 f"✅ Partial: Sent ${remaining:.2f} to {w['username']} via {w['method']}\n"
                 f"Remaining withdrawal: ${w['amount'] - remaining:.2f}"
             )
-
-            # Post update in the channel where withdrawal was queued
             channel = bot.get_channel(w["channel_id"])
             if channel:
                 await channel.send(
@@ -123,7 +146,6 @@ async def confirm_deposit(inter):
                     f"Amount claimed: ${remaining:.2f}\n"
                     f"Remaining: ${w['amount'] - remaining:.2f}"
                 )
-
             w["amount"] -= remaining
             remaining = 0
             break
