@@ -58,7 +58,7 @@ async def deposit(inter, username: str, method: str, amount: float):
     deposit_entry = {"username": username, "method": method.lower(), "amount": amount, "status": "pending"}
     deposits.append(deposit_entry)
 
-    # Look for first matching withdrawal
+    # Look for the first withdrawal in order that matches this method & still has amount left
     match = next((w for w in withdrawals if w["method"] == method.lower() and w["amount"] > 0), None)
 
     if match:
@@ -66,6 +66,7 @@ async def deposit(inter, username: str, method: str, amount: float):
                       f"➡️ Send via **{match['method'].capitalize()}** to **{match['destination']}**\n"
                       f"📸 Please send a screenshot once payment is complete.")
     else:
+        # Only fallback if NO withdrawals exist for this method
         if method.lower() == "zelle":
             dest = "crisparlog@gmail.com"
             public_msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
@@ -81,12 +82,11 @@ async def deposit(inter, username: str, method: str, amount: float):
                           f"➡️ Send via **{method.capitalize()}** — contact admin\n"
                           f"📸 Please send a screenshot once payment is complete.")
 
-    # Send the public part
+    # Send the public info
     await inter.response.send_message(public_msg)
 
-    # Send the private (ephemeral) note only to staff
+    # Private note for staff only
     await inter.followup.send("ℹ️ Still stored as pending — confirm with `/confirm_deposit` once verified.", ephemeral=True)
-
 
 
 @bot.slash_command(description="Confirm the last pending deposit and process matches")
@@ -245,4 +245,5 @@ async def make(inter, user: disnake.Member, role: str):
 # ---- START ----
 print("Loaded token?", bool(TOKEN))
 bot.run(TOKEN)
+
 
