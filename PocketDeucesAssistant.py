@@ -38,7 +38,7 @@ async def queue(inter, username: str, method: str, destination: str, amount: flo
         "method": method.lower(),
         "destination": destination,
         "amount": amount,
-        "channel_id": inter.channel.id  # Save channel for updates
+        "channel_id": inter.channel.id
     })
     await inter.response.send_message(
         f"✅ Withdrawal queued:\n"
@@ -58,12 +58,12 @@ async def deposit(inter, username: str, method: str, amount: float):
     deposit_entry = {"username": username, "method": method.lower(), "amount": amount, "status": "pending"}
     deposits.append(deposit_entry)
 
-    # Check if there's at least one withdrawal that matches method
-    match_found = any(w["method"] == method.lower() and w["amount"] > 0 for w in withdrawals)
+    # Look for first matching withdrawal
+    match = next((w for w in withdrawals if w["method"] == method.lower() and w["amount"] > 0), None)
 
-    if match_found:
+    if match:
         msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
-               f"✅ Potential match found in withdrawal queue.\n"
+               f"➡️ Send via **{match['method'].capitalize()}** to **{match['destination']}**\n"
                f"Use `/confirm_deposit` once payment is verified.\n"
                f"📸 Please send a screenshot once payment is complete.")
     else:
@@ -71,14 +71,12 @@ async def deposit(inter, username: str, method: str, amount: float):
         if method.lower() == "zelle":
             fallback_dest = "crisparlog@gmail.com"
             msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
-                   f"⚠️ No withdrawal matches this deposit.\n"
                    f"➡️ Default payout account: **{fallback_dest}**\n"
                    f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
                    f"📸 Please send a screenshot once payment is complete.")
         elif method.lower() == "venmo":
             fallback_dest = "CrisPG"
             msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Venmo\n"
-                   f"⚠️ No withdrawal matches this deposit.\n"
                    f"➡️ Default payout account: **{fallback_dest}**\n"
                    f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
                    f"📸 Please send a screenshot once payment is complete.")
@@ -97,7 +95,6 @@ async def confirm_deposit(inter):
         await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
         return
 
-    # Find the last pending deposit
     pending = None
     for d in reversed(deposits):
         if d["status"] == "pending":
@@ -108,14 +105,12 @@ async def confirm_deposit(inter):
         await inter.response.send_message("⚠️ No pending deposits to confirm.", ephemeral=True)
         return
 
-    # Confirm it
     pending["status"] = "confirmed"
     username, method, amount = pending["username"], pending["method"], pending["amount"]
 
     remaining = amount
     private_msgs = []
 
-    # Match to withdrawals
     for w in withdrawals:
         if w["method"] != method or w["amount"] <= 0:
             continue
@@ -123,34 +118,33 @@ async def confirm_deposit(inter):
             break
 
         if remaining >= w["amount"]:  # full match
-            private_msgs.append(f"✅ Sent ${w['amount']:.2f} to {w['username']} via {w['method']}")
+            private_msgs.append(
+                f"✅ Sent ${w['amount']:.2f} via {w['method'].capitalize()} to {w['destination']}"
+            )
             remaining -= w["amount"]
 
             channel = bot.get_channel(w["channel_id"])
             if channel:
                 await channel.send(
                     f"📢 **Update for {w['username']}**\n"
-                    f"Amount claimed: ${w['amount']:.2f}\n"
-                    f"Remaining: $0.00"
+                    f"Amount claimed: ${w['amount']:.2f}\nRemaining: $0.00"
                 )
             w["amount"] = 0
         else:  # partial match
             private_msgs.append(
-                f"✅ Partial: Sent ${remaining:.2f} to {w['username']} via {w['method']}\n"
+                f"✅ Partial: Sent ${remaining:.2f} via {w['method'].capitalize()} to {w['destination']}\n"
                 f"Remaining withdrawal: ${w['amount'] - remaining:.2f}"
             )
             channel = bot.get_channel(w["channel_id"])
             if channel:
                 await channel.send(
                     f"📢 **Partial Update for {w['username']}**\n"
-                    f"Amount claimed: ${remaining:.2f}\n"
-                    f"Remaining: ${w['amount'] - remaining:.2f}"
+                    f"Amount claimed: ${remaining:.2f}\nRemaining: ${w['amount'] - remaining:.2f}"
                 )
             w["amount"] -= remaining
             remaining = 0
             break
 
-    # Private response to staff
     if private_msgs:
         if remaining > 0:
             private_msgs.append(f"⚠️ ${remaining:.2f} of {username}'s deposit remains unmatched.")
@@ -158,6 +152,8 @@ async def confirm_deposit(inter):
     else:
         await inter.response.send_message("⚠️ Deposit confirmed but no matches found.", ephemeral=True)
 
+
+# ---- OTHER COMMANDS (same as before) ----
 
 @bot.slash_command(description="Mark oldest withdrawal as filled")
 async def filled(inter):
