@@ -33,6 +33,15 @@ async def queue(inter, username: str, method: str, destination: str, amount: flo
         await inter.response.send_message("❌ Invalid method. Use Venmo, Zelle, CashApp, or Crypto.", ephemeral=True)
         return
 
+    # Zelle validation (must be 10-digit phone or email)
+    if method.lower() == "zelle":
+        if not (destination.isdigit() and len(destination) == 10) and "@" not in destination:
+            await inter.response.send_message(
+                "❌ Invalid Zelle destination. Must be a 10-digit phone number or email.",
+                ephemeral=True
+            )
+            return
+
     withdrawals.append({
         "username": username,
         "method": method.lower(),
@@ -96,6 +105,7 @@ async def confirm_deposit(inter):
         await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
         return
 
+    # Find last pending deposit
     pending = None
     for d in reversed(deposits):
         if d["status"] == "pending":
@@ -109,35 +119,47 @@ async def confirm_deposit(inter):
     pending["status"] = "confirmed"
     username, method, amount = pending["username"], pending["method"], pending["amount"]
 
-    remaining = amount
+    # Find the first withdrawal that can accept this deposit (deposit <= withdrawal)
+    target = next(
+        (w for w in withdrawals if w["method"] == method and w["amount"] >= amount),
+        None
+    )
 
-    for w in withdrawals:
-        if w["method"] != method or w["amount"] <= 0:
-            continue
-        if remaining <= 0:
-            break
+    if not target:
+        # No eligible withdrawal → fallback
+        if method == "zelle":
+            dest = "crisparlog@gmail.com"
+        elif method == "venmo":
+            dest = "CrisPG"
+        else:  # cashapp / crypto
+            dest = "Contact admin"
 
-        if remaining >= w["amount"]:  # full match
-            channel = bot.get_channel(w["channel_id"])
-            if channel:
-                await channel.send(
-                    f"📢 **Update for {w['username']}**\n"
-                    f"Amount claimed: ${w['amount']:.2f}\nRemaining: $0.00"
-                )
-            remaining -= w["amount"]
-            w["amount"] = 0
-            w["status"] = "Completed"
-        else:  # partial match
-            channel = bot.get_channel(w["channel_id"])
-            if channel:
-                await channel.send(
-                    f"📢 **Partial Update for {w['username']}**\n"
-                    f"Amount claimed: ${remaining:.2f}\nRemaining: ${w['amount'] - remaining:.2f}"
-                )
-            w["amount"] -= remaining
-            w["status"] = "Partial"
-            remaining = 0
-            break
+        await inter.response.send_message(
+            f"⚠️ No eligible withdrawal found.\n"
+            f"➡️ Send via {method.capitalize()} to **{dest}**"
+        )
+        return
+
+    # Apply deposit to the matched withdrawal
+    target["amount"] -= amount
+    if target["amount"] == 0:
+        target["status"] = "Completed"
+    elif target["amount"] < target["original_amount"]:
+        target["status"] = "Partial"
+
+    # Post update in that withdrawal’s channel
+    channel = bot.get_channel(target["channel_id"])
+    if channel:
+        if target["amount"] == 0:
+            await channel.send(
+                f"📢 **Update for {target['username']}**\n"
+                f"Amount claimed: ${amount:.2f}\nRemaining: $0.00 / ${target['original_amount']:.2f}"
+            )
+        else:
+            await channel.send(
+                f"📢 **Partial Update for {target['username']}**\n"
+                f"Amount claimed: ${amount:.2f}\nRemaining: ${target['amount']:.2f} / ${target['original_amount']:.2f}"
+            )
 
     # Thank depositor
     await inter.response.send_message("✅ Thank you! Your chips will be loaded shortly.")
@@ -252,6 +274,48 @@ async def make(inter, user: disnake.Member, role: str):
         target_role = await guild.create_role(name=role)
     await user.add_roles(target_role)
     await inter.response.send_message(f"✅ {user.mention} is now a **{role}**.")
+
+
+@bot.slash_command(description="Show all available commands and their uses")
+async def help(inter):
+    if not is_staff(inter):
+        await inter.response.send_message("❌ Only Admins/Cashiers can use this bot.", ephemeral=True)
+        return
+
+    help_text = """
+📖 **Pocket Deuces Assistant Commands**
+
+**Withdrawals**
+- `/queue username method destination amount`
+   → Queue a new withdrawal request.
+- `/queue_list`
+   → Show all withdrawals with status (Not Started / Partial / Completed).
+- `/add amount`
+   → Add money to the active withdrawal in this channel.
+- `/subtract amount`
+   → Subtract money from the active withdrawal in this channel.
+
+**Deposits**
+- `/deposit username method amount`
+   → Record a deposit (PENDING until confirmed).
+- `/confirm_deposit`
+   → Confirm the last pending deposit and update withdrawals.
+- `/deposit_list`
+   → Show all deposits with their status (PENDING/CONFIRMED).
+- `/complete`
+   → Mark the oldest deposit as completed.
+
+**Roles**
+- `/make @user role`
+   → Grant a user the Admin or Cashier role.
+
+**Notes**
+- Only users with Admin/Cashier roles can use these commands.
+- Zelle destinations must be a 10-digit phone number or email.
+- Updates for withdrawals are posted directly in the channel where they were queued.
+"""
+
+    await inter.response.send_message(help_text, ephemeral=True)
 
 
 # ---- START ----
