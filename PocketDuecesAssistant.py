@@ -4,9 +4,9 @@ import asyncio
 from datetime import datetime, timezone
 import re
 
-import discord
-from discord import app_commands
-from discord.ext import commands
+import nextcord as discord
+from nextcord.ext import commands
+
 
 # --------------- CONFIG ---------------
 GUILD_ID = None   # Set to your server ID (int) for faster sync during testing
