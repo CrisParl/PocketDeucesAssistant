@@ -1,3 +1,4 @@
+import os
 import disnake
 from disnake.ext import commands
 
@@ -96,5 +97,6 @@ async def complete(inter):
 
 # ---- START ----
 bot.run(TOKEN)
+
 
 
