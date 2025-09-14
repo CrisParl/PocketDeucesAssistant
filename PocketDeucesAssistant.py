@@ -62,30 +62,31 @@ async def deposit(inter, username: str, method: str, amount: float):
     match = next((w for w in withdrawals if w["method"] == method.lower() and w["amount"] > 0), None)
 
     if match:
-        msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
-               f"➡️ Send via **{match['method'].capitalize()}** to **{match['destination']}**\n"
-               f"Use `/confirm_deposit` once payment is verified.\n"
-               f"📸 Please send a screenshot once payment is complete.")
+        public_msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
+                      f"➡️ Send via **{match['method'].capitalize()}** to **{match['destination']}**\n"
+                      f"📸 Please send a screenshot once payment is complete.")
     else:
         if method.lower() == "zelle":
             dest = "crisparlog@gmail.com"
-            msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
-                   f"➡️ Send via **Zelle** to **{dest}**\n"
-                   f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
-                   f"📸 Please send a screenshot once payment is complete.")
+            public_msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
+                          f"➡️ Send via **Zelle** to **{dest}**\n"
+                          f"📸 Please send a screenshot once payment is complete.")
         elif method.lower() == "venmo":
             dest = "CrisPG"
-            msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Venmo\n"
-                   f"➡️ Send via **Venmo** to **{dest}**\n"
-                   f"Still stored as pending — confirm with `/confirm_deposit` once verified.\n"
-                   f"📸 Please send a screenshot once payment is complete.")
+            public_msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Venmo\n"
+                          f"➡️ Send via **Venmo** to **{dest}**\n"
+                          f"📸 Please send a screenshot once payment is complete.")
         else:  # cashapp or crypto
-            msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
-                   f"➡️ Send via **{method.capitalize()}** — contact admin\n"
-                   f"Still stored as pending — you can `/confirm_deposit` later.\n"
-                   f"📸 Please send a screenshot once payment is complete.")
+            public_msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via {method.capitalize()}\n"
+                          f"➡️ Send via **{method.capitalize()}** — contact admin\n"
+                          f"📸 Please send a screenshot once payment is complete.")
 
-    await inter.response.send_message(msg)
+    # Send the public part
+    await inter.response.send_message(public_msg)
+
+    # Send the private (ephemeral) note only to staff
+    await inter.followup.send("ℹ️ Still stored as pending — confirm with `/confirm_deposit` once verified.", ephemeral=True)
+
 
 
 @bot.slash_command(description="Confirm the last pending deposit and process matches")
@@ -244,3 +245,4 @@ async def make(inter, user: disnake.Member, role: str):
 # ---- START ----
 print("Loaded token?", bool(TOKEN))
 bot.run(TOKEN)
+
