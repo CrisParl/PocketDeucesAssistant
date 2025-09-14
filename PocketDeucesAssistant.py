@@ -15,8 +15,11 @@ bot = commands.InteractionBot(intents=intents)
 withdrawals = []
 deposits = []
 
+
+# ---- HELPERS ----
 def is_staff(inter):
     return any(r.name.lower() in ADMIN_ROLES for r in inter.author.roles)
+
 
 # ---- COMMANDS ----
 
@@ -28,6 +31,10 @@ async def queue(
     destination: str,
     amount: float
 ):
+    if not is_staff(inter):
+        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
+        return
+
     if method.lower() not in ALLOWED_METHODS:
         await inter.response.send_message("❌ Invalid method. Use Venmo, Zelle, CashApp, or Crypto.", ephemeral=True)
         return
@@ -38,9 +45,13 @@ async def queue(
         "destination": destination,
         "amount": amount
     })
-    await inter.response.send_message(f"✅ Withdrawal queued: {username}, {method}, {amount}")
+    await inter.response.send_message(
+        f"✅ Withdrawal queued:\n"
+        f"User: {username}\nMethod: {method}\nDestination: {destination}\nAmount: ${amount:.2f}"
+    )
 
-@bot.slash_command(description="Record a deposit and match to withdrawals")
+
+@bot.slash_command(description="Record a deposit and match it to withdrawals")
 async def deposit(
     inter,
     username: str,
@@ -48,57 +59,82 @@ async def deposit(
     amount: float
 ):
     if not is_staff(inter):
-        await inter.response.send_message("❌ Only admins/cashiers can use this command.", ephemeral=True)
+        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
         return
 
     if method.lower() not in ALLOWED_METHODS:
         await inter.response.send_message("❌ Invalid method.", ephemeral=True)
         return
 
-    deposits.append({
+    deposit_entry = {
         "username": username,
         "method": method.lower(),
         "amount": amount
-    })
+    }
+    deposits.append(deposit_entry)
 
-    # Try to match deposit to withdrawals
+    remaining = amount
+    messages = []
+
+    # Match deposit against withdrawals (FIFO style)
     for w in withdrawals:
-        if w["method"] == method.lower() and w["amount"] <= amount:
-            deposits[-1]["amount"] -= w["amount"]
-            msg = (f"💰 Match found!\n"
-                   f"Send {w['amount']} to {w['username']} via {w['method']} ({w['destination']})")
+        if w["method"] != method.lower() or w["amount"] <= 0:
+            continue
+
+        if remaining <= 0:
+            break
+
+        if remaining >= w["amount"]:  # deposit fully covers withdrawal
+            messages.append(
+                f"💰 Send ${w['amount']:.2f} to {w['username']} via {w['method']} ({w['destination']})"
+            )
+            remaining -= w["amount"]
             w["amount"] = 0
-            await inter.response.send_message(msg)
-            return
+        else:  # deposit partially covers withdrawal
+            messages.append(
+                f"💰 Partial match: Send ${remaining:.2f} to {w['username']} via {w['method']} ({w['destination']})\n"
+                f"Remaining withdrawal for {w['username']}: ${w['amount'] - remaining:.2f}"
+            )
+            w["amount"] -= remaining
+            remaining = 0
+            break
 
-    await inter.response.send_message("⚠️ No efficient match found. Contact admin.")
+    if messages:
+        if remaining > 0:
+            messages.append(f"⚠️ ${remaining:.2f} of the deposit remains unmatched.")
+        await inter.response.send_message("\n".join(messages))
+    else:
+        await inter.response.send_message("⚠️ No matching withdrawals found. Contact admin.")
 
-@bot.slash_command(description="Mark last withdrawal as filled")
+
+@bot.slash_command(description="Mark the oldest withdrawal as filled (remove from queue)")
 async def filled(inter):
     if not is_staff(inter):
-        await inter.response.send_message("❌ Only admins/cashiers can use this command.", ephemeral=True)
+        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
         return
-    if withdrawals:
-        withdrawals.pop(0)
-        await inter.response.send_message("✅ Last withdrawal marked as filled.")
-    else:
-        await inter.response.send_message("⚠️ No withdrawals in queue.")
 
-@bot.slash_command(description="Complete last deposit")
+    for i, w in enumerate(withdrawals):
+        if w["amount"] > 0:
+            withdrawals.pop(i)
+            await inter.response.send_message("✅ Oldest withdrawal marked as filled.")
+            return
+
+    await inter.response.send_message("⚠️ No withdrawals in queue.")
+
+
+@bot.slash_command(description="Mark the oldest deposit as completed (remove from queue)")
 async def complete(inter):
     if not is_staff(inter):
-        await inter.response.send_message("❌ Only admins/cashiers can use this command.", ephemeral=True)
+        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
         return
+
     if deposits:
         deposits.pop(0)
-        await inter.response.send_message("✅ Last deposit completed.")
+        await inter.response.send_message("✅ Oldest deposit completed.")
     else:
         await inter.response.send_message("⚠️ No deposits in queue.")
+
 
 # ---- START ----
 print("Loaded token?", bool(TOKEN))
 bot.run(TOKEN)
-
-
-
-
