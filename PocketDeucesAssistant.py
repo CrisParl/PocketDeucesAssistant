@@ -3,16 +3,13 @@ import disnake
 from disnake.ext import commands
 
 # ---- CONFIG ----
-TOKEN = os.getenv("DISCORD_TOKEN")  # store your token as env var
+TOKEN = os.getenv("DISCORD_TOKEN")  # Set this in your environment/hosting
 ALLOWED_METHODS = ["venmo", "zelle", "cashapp", "crypto"]
 ADMIN_ROLES = ["admin", "cashier"]
 
-# Channel ID for public withdrawal announcements
-WITHDRAW_CHANNEL_ID = 123456789012345678  # <- replace with your channel ID
-
 # ---- BOT ----
 intents = disnake.Intents.default()
-intents.members = True
+intents.members = True  # requires "Server Members Intent" enabled in Dev Portal
 bot = commands.InteractionBot(intents=intents)
 
 # Track queues (in memory)
@@ -40,7 +37,8 @@ async def queue(inter, username: str, method: str, destination: str, amount: flo
         "username": username,
         "method": method.lower(),
         "destination": destination,
-        "amount": amount
+        "amount": amount,
+        "channel_id": inter.channel.id  # store the channel where it was queued
     })
     await inter.response.send_message(
         f"✅ Withdrawal queued:\n"
@@ -88,7 +86,7 @@ async def confirm_deposit(inter):
     username, method, amount = pending["username"], pending["method"], pending["amount"]
 
     remaining = amount
-    messages = []
+    private_msgs = []
 
     # Match to withdrawals
     for w in withdrawals:
@@ -98,34 +96,45 @@ async def confirm_deposit(inter):
             break
 
         if remaining >= w["amount"]:  # full match
-            messages.append(f"✅ Sent ${w['amount']:.2f} to {w['username']} ({w['destination']}) via {w['method']}")
+            private_msgs.append(f"✅ Sent ${w['amount']:.2f} to {w['username']} via {w['method']}")
             remaining -= w["amount"]
+
+            # Post update in the channel where withdrawal was queued
+            channel = bot.get_channel(w["channel_id"])
+            if channel:
+                await channel.send(
+                    f"📢 **Update for {w['username']}**\n"
+                    f"Amount claimed: ${w['amount']:.2f}\n"
+                    f"Remaining: $0.00"
+                )
+
             w["amount"] = 0
         else:  # partial match
-            messages.append(
-                f"✅ Partial: Sent ${remaining:.2f} to {w['username']} ({w['destination']}) via {w['method']}\n"
-                f"Remaining withdrawal for {w['username']}: ${w['amount'] - remaining:.2f}"
+            private_msgs.append(
+                f"✅ Partial: Sent ${remaining:.2f} to {w['username']} via {w['method']}\n"
+                f"Remaining withdrawal: ${w['amount'] - remaining:.2f}"
             )
+
+            # Post update in the channel where withdrawal was queued
+            channel = bot.get_channel(w["channel_id"])
+            if channel:
+                await channel.send(
+                    f"📢 **Partial Update for {w['username']}**\n"
+                    f"Amount claimed: ${remaining:.2f}\n"
+                    f"Remaining: ${w['amount'] - remaining:.2f}"
+                )
+
             w["amount"] -= remaining
             remaining = 0
             break
 
-    # Private response
-    if messages:
+    # Private response to staff
+    if private_msgs:
         if remaining > 0:
-            messages.append(f"⚠️ ${remaining:.2f} of {username}'s deposit remains unmatched.")
-        await inter.response.send_message("\n".join(messages))
+            private_msgs.append(f"⚠️ ${remaining:.2f} of {username}'s deposit remains unmatched.")
+        await inter.response.send_message("\n".join(private_msgs))
     else:
         await inter.response.send_message("⚠️ Deposit confirmed but no matches found.", ephemeral=True)
-
-    # Public announcement
-    channel = bot.get_channel(WITHDRAW_CHANNEL_ID)
-    if channel:
-        msg = [
-            f"📢 **Deposit Confirmed:** {username} (${amount:.2f} via {method.capitalize()})",
-        ]
-        msg.extend(messages if messages else ["No withdrawals matched."])
-        await channel.send("\n".join(msg))
 
 
 @bot.slash_command(description="Mark oldest withdrawal as filled")
