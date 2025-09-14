@@ -277,7 +277,7 @@ async def make(inter, user: disnake.Member, role: str):
 
 
 @bot.slash_command(description="Show all available commands and their uses")
-async def help(inter):
+async def commands(inter):
     if not is_staff(inter):
         await inter.response.send_message("❌ Only Admins/Cashiers can use this bot.", ephemeral=True)
         return
@@ -321,3 +321,4 @@ async def help(inter):
 # ---- START ----
 print("Loaded token?", bool(TOKEN))
 bot.run(TOKEN)
+
