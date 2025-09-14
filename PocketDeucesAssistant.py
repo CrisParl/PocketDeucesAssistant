@@ -2,6 +2,7 @@ import disnake
 from disnake.ext import commands
 
 # ---- CONFIG ----
+TOKEN = os.getenv("DISCORD_TOKEN")
 ALLOWED_METHODS = ["venmo", "zelle", "cashapp", "crypto"]
 ADMIN_ROLES = ["admin", "cashier"]
 
@@ -95,4 +96,5 @@ async def complete(inter):
 
 # ---- START ----
 bot.run(TOKEN)
+
 
