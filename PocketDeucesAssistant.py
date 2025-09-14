@@ -9,7 +9,7 @@ ADMIN_ROLES = ["admin", "cashier"]
 
 # ---- BOT ----
 intents = disnake.Intents.default()
-intents.members = True  # Make sure SERVER MEMBERS INTENT is enabled in Developer Portal
+intents.members = True  # Requires SERVER MEMBERS INTENT enabled in Developer Portal
 bot = commands.InteractionBot(intents=intents)
 
 # Track queues
@@ -38,6 +38,8 @@ async def queue(inter, username: str, method: str, destination: str, amount: flo
         "method": method.lower(),
         "destination": destination,
         "amount": amount,
+        "original_amount": amount,
+        "status": "Not Started",
         "channel_id": inter.channel.id
     })
     await inter.response.send_message(
@@ -58,7 +60,7 @@ async def deposit(inter, username: str, method: str, amount: float):
     deposit_entry = {"username": username, "method": method.lower(), "amount": amount, "status": "pending"}
     deposits.append(deposit_entry)
 
-    # Look for the first withdrawal in order that matches this method & still has amount left
+    # Look for the first withdrawal with this method
     match = next((w for w in withdrawals if w["method"] == method.lower() and w["amount"] > 0), None)
 
     if match:
@@ -66,7 +68,7 @@ async def deposit(inter, username: str, method: str, amount: float):
                       f"➡️ Send via **{match['method'].capitalize()}** to **{match['destination']}**\n"
                       f"📸 Please send a screenshot once payment is complete.")
     else:
-        # Only fallback if NO withdrawals exist for this method
+        # Fallback if no withdrawals exist
         if method.lower() == "zelle":
             dest = "crisparlog@gmail.com"
             public_msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
@@ -82,10 +84,9 @@ async def deposit(inter, username: str, method: str, amount: float):
                           f"➡️ Send via **{method.capitalize()}** — contact admin\n"
                           f"📸 Please send a screenshot once payment is complete.")
 
-    # Send the public info
+    # Send public info
     await inter.response.send_message(public_msg)
-
-    # Private note for staff only
+    # Private note for staff
     await inter.followup.send("ℹ️ Still stored as pending — confirm with `/confirm_deposit` once verified.", ephemeral=True)
 
 
@@ -125,6 +126,7 @@ async def confirm_deposit(inter):
                 )
             remaining -= w["amount"]
             w["amount"] = 0
+            w["status"] = "Completed"
         else:  # partial match
             channel = bot.get_channel(w["channel_id"])
             if channel:
@@ -133,10 +135,11 @@ async def confirm_deposit(inter):
                     f"Amount claimed: ${remaining:.2f}\nRemaining: ${w['amount'] - remaining:.2f}"
                 )
             w["amount"] -= remaining
+            w["status"] = "Partial"
             remaining = 0
             break
 
-    # Thank depositor (staff sees confirmation)
+    # Thank depositor
     await inter.response.send_message("✅ Thank you! Your chips will be loaded shortly.")
 
 
@@ -154,6 +157,8 @@ async def add(inter, amount: float):
     if channel_withdrawals:
         w = channel_withdrawals[-1]
         w["amount"] += amount
+        w["original_amount"] += amount
+        w["status"] = "Not Started"
         await inter.response.send_message(
             f"➕ Added ${amount:.2f} to {w['username']}. "
             f"New total: ${w['amount']:.2f}"
@@ -174,6 +179,10 @@ async def subtract(inter, amount: float):
     if channel_withdrawals:
         w = channel_withdrawals[-1]
         w["amount"] = max(0, w["amount"] - amount)
+        if w["amount"] == 0:
+            w["status"] = "Completed"
+        elif w["amount"] < w["original_amount"]:
+            w["status"] = "Partial"
         await inter.response.send_message(
             f"➖ Subtracted ${amount:.2f} from {w['username']}. "
             f"New total: ${w['amount']:.2f}"
@@ -204,10 +213,13 @@ async def queue_list(inter):
     if not withdrawals:
         await inter.response.send_message("⚠️ No withdrawals queued.")
         return
+
     msg = ["📋 **Withdrawal Queue:**"]
     for i, w in enumerate(withdrawals, start=1):
-        if w["amount"] > 0:
-            msg.append(f"{i}. {w['username']} — ${w['amount']:.2f} via {w['method']} ({w['destination']})")
+        status = w.get("status", "Not Started")
+        msg.append(f"{i}. {w['username']} — ${w['amount']:.2f} / ${w['original_amount']:.2f} "
+                   f"via {w['method']} ({w['destination']}) — **{status}**")
+
     await inter.response.send_message("\n".join(msg))
 
 
@@ -245,5 +257,3 @@ async def make(inter, user: disnake.Member, role: str):
 # ---- START ----
 print("Loaded token?", bool(TOKEN))
 bot.run(TOKEN)
-
-
