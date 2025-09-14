@@ -3,7 +3,7 @@ import disnake
 from disnake.ext import commands
 
 # ---- CONFIG ----
-TOKEN = os.getenv("DISCORD_TOKEN")  # Store in Replit/host secrets
+TOKEN = os.getenv("DISCORD_TOKEN")  # Store securely in host env/replit
 ALLOWED_METHODS = ["venmo", "zelle", "cashapp", "crypto"]
 ADMIN_ROLES = ["admin", "cashier"]
 
@@ -12,7 +12,7 @@ intents = disnake.Intents.default()
 intents.members = True  # Requires SERVER MEMBERS INTENT enabled in Dev Portal
 bot = commands.InteractionBot(intents=intents)
 
-# Track queues (in memory)
+# Track queues
 withdrawals = []
 deposits = []
 
@@ -67,7 +67,6 @@ async def deposit(inter, username: str, method: str, amount: float):
                f"Use `/confirm_deposit` once payment is verified.\n"
                f"📸 Please send a screenshot once payment is complete.")
     else:
-        # Fallback defaults
         if method.lower() == "zelle":
             fallback_dest = "crisparlog@gmail.com"
             msg = (f"⏳ Deposit PENDING: {username} — ${amount:.2f} via Zelle\n"
@@ -153,20 +152,49 @@ async def confirm_deposit(inter):
         await inter.response.send_message("⚠️ Deposit confirmed but no matches found.", ephemeral=True)
 
 
-# ---- OTHER COMMANDS (same as before) ----
+# ---- MODIFIED ADD/SUBTRACT ----
 
-@bot.slash_command(description="Mark oldest withdrawal as filled")
-async def filled(inter):
+@bot.slash_command(description="Add money to the active withdrawal in this channel")
+async def add(inter, amount: float):
     if not is_staff(inter):
         await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
         return
-    for i, w in enumerate(withdrawals):
-        if w["amount"] > 0:
-            withdrawals.pop(i)
-            await inter.response.send_message("✅ Oldest withdrawal marked as filled.")
-            return
-    await inter.response.send_message("⚠️ No withdrawals in queue.")
+    
+    channel_id = inter.channel.id
+    channel_withdrawals = [w for w in withdrawals if w["channel_id"] == channel_id and w["amount"] > 0]
 
+    if channel_withdrawals:
+        w = channel_withdrawals[-1]
+        w["amount"] += amount
+        await inter.response.send_message(
+            f"➕ Added ${amount:.2f} to {w['username']}. "
+            f"New total: ${w['amount']:.2f}"
+        )
+    else:
+        await inter.response.send_message("⚠️ No active withdrawals in this channel.")
+
+
+@bot.slash_command(description="Subtract money from the active withdrawal in this channel")
+async def subtract(inter, amount: float):
+    if not is_staff(inter):
+        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
+        return
+    
+    channel_id = inter.channel.id
+    channel_withdrawals = [w for w in withdrawals if w["channel_id"] == channel_id and w["amount"] > 0]
+
+    if channel_withdrawals:
+        w = channel_withdrawals[-1]
+        w["amount"] = max(0, w["amount"] - amount)
+        await inter.response.send_message(
+            f"➖ Subtracted ${amount:.2f} from {w['username']}. "
+            f"New total: ${w['amount']:.2f}"
+        )
+    else:
+        await inter.response.send_message("⚠️ No active withdrawals in this channel.")
+
+
+# ---- OTHER COMMANDS ----
 
 @bot.slash_command(description="Mark oldest deposit as completed")
 async def complete(inter):
@@ -207,50 +235,6 @@ async def deposit_list(inter):
     for i, d in enumerate(deposits, start=1):
         msg.append(f"{i}. {d['username']} — ${d['amount']:.2f} via {d['method']} [{d['status'].upper()}]")
     await inter.response.send_message("\n".join(msg))
-
-
-@bot.slash_command(description="Delete the last withdrawal")
-async def delete(inter):
-    if not is_staff(inter):
-        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
-        return
-    if withdrawals:
-        removed = withdrawals.pop()
-        await inter.response.send_message(f"🗑️ Deleted {removed['username']}'s withdrawal (${removed['amount']:.2f}).")
-    else:
-        await inter.response.send_message("⚠️ No withdrawals to delete.")
-
-
-@bot.slash_command(description="Add money to last withdrawal")
-async def add(inter, amount: float):
-    if not is_staff(inter):
-        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
-        return
-    if withdrawals:
-        withdrawals[-1]["amount"] += amount
-        await inter.response.send_message(
-            f"➕ Added ${amount:.2f} to {withdrawals[-1]['username']}. "
-            f"New total: ${withdrawals[-1]['amount']:.2f}"
-        )
-    else:
-        await inter.response.send_message("⚠️ No withdrawals to modify.")
-
-
-@bot.slash_command(description="Subtract money from last withdrawal")
-async def subtract(inter, amount: float):
-    if not is_staff(inter):
-        await inter.response.send_message("❌ Only Admins/Cashiers can use this.", ephemeral=True)
-        return
-    if withdrawals:
-        withdrawals[-1]["amount"] -= amount
-        if withdrawals[-1]["amount"] < 0:
-            withdrawals[-1]["amount"] = 0
-        await inter.response.send_message(
-            f"➖ Subtracted ${amount:.2f} from {withdrawals[-1]['username']}. "
-            f"New total: ${withdrawals[-1]['amount']:.2f}"
-        )
-    else:
-        await inter.response.send_message("⚠️ No withdrawals to modify.")
 
 
 @bot.slash_command(description="Grant someone Admin or Cashier role")
