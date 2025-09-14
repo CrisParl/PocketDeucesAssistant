@@ -4,8 +4,8 @@ import asyncio
 from datetime import datetime, timezone
 import re
 
-import nextcord as discord
-from nextcord.ext import commands
+import disnake as discord
+from disnake.ext import commands
 
 
 # --------------- CONFIG ---------------
